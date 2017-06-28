@@ -1,11 +1,15 @@
 import torchvision.transforms as transforms
 import argparse
 import os
+import torch
+from collections import OrderedDict
 from options.test_options import TestOptions
 from models.test_model import TestModel
 from PIL import Image
 from util.visualizer import Visualizer
 from util import util
+from models import networks
+from torch.autograd import Variable
 
 print 'Single Feedforward Test Started...'
 
@@ -22,9 +26,33 @@ opt.model = 'test'
 opt.dataset_mode = 'single'
 opt.phase = 'test'
 
+result_dir = "/media/illusion/ML_DATA_SSD_M550/pytorch-CycleGAN-and-pix2pix/temp/"
+model_path = "/media/illusion/ML_DATA_SSD_M550/pytorch-CycleGAN-and-pix2pix/checkpoints/maps_cyclegan/1_net_G_A.pth"
+
 # Create the model
 model = TestModel()
 model.initialize(opt)
+
+assert (not opt.isTrain)
+
+#input_A = self.Tensor(opt.batchSize, opt.input_nc, opt.fineSize, opt.fineSize)
+
+gpu_ids = []
+gpu_ids.append(0)
+
+tensor = torch.cuda.FloatTensor if gpu_ids else torch.Tensor
+input_A = tensor(opt.batchSize, opt.input_nc, opt.fineSize, opt.fineSize)
+
+netG = networks.define_G(opt.input_nc, opt.output_nc,
+                              opt.ngf, opt.which_model_netG,
+                              opt.norm, opt.use_dropout,
+                              gpu_ids)
+
+print('---------- Networks initialized -------------')
+networks.print_network(netG)
+print('-----------------------------------------------')
+
+netG.load_state_dict(torch.load(model_path))
 
 visualizer = Visualizer(opt)
 
@@ -55,13 +83,20 @@ A_img_reshaped = A_img.view(-1, 3, 256, 256)
 
 data = {'A': A_img_reshaped, 'A_paths': A_path}
 
+# we need to use single_dataset mode
+input_A_temp = data['A']
+input_A.resize_(input_A_temp.size()).copy_(input_A_temp)
+image_paths = data['A_paths']
+
 # Feedforward a test image
-model.set_input(data)
-model.test()
+real_A = Variable(input_A)
+fake_B = netG.forward(real_A)
 
-visuals = model.get_current_visuals()
+#visuals = model.get_current_visuals()
+real_A_im = util.tensor2im(real_A.data)
+fake_B_im = util.tensor2im(fake_B.data)
+visuals = OrderedDict([('real_A', real_A_im), ('fake_B', fake_B_im)])
 
-result_dir = "/media/illusion/ML_DATA_SSD_M550/pytorch-CycleGAN-and-pix2pix/temp/"
 for label, image_numpy in visuals.items():
     image_name = '%s_%s.png' % ("result", label)
     save_path = os.path.join(result_dir, image_name)
